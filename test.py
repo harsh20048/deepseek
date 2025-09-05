@@ -1,11 +1,40 @@
+#!/usr/bin/env python3
+"""
+DeepSeek PDF Processor - Enhanced Command Line Tool
+
+Extract structured data from German PDF documents using local DeepSeek model.
+
+Usage Examples:
+    python test.py                                    # Process default PDF
+    python test.py -p invoice.pdf                     # Process specific PDF
+    python test.py -p quote.pdf -o results.json       # Save results to file
+    python test.py --model /path/to/model             # Use custom model path
+    python test.py --verbose                          # Enable detailed logging
+    python test.py --fields-only                      # Extract only fields
+    python test.py --table-only                       # Extract only tables
+
+Environment Variables:
+    DEEPSEEK_MODEL_PATH: Path to DeepSeek model directory
+
+Features:
+    - Regex fallback for robust field extraction
+    - Direct table extraction with pdfplumber
+    - Configurable model path and output
+    - Comprehensive error handling
+    - Privacy-first: 100% offline processing
+"""
+
 import pdfplumber
 import json
-from tabulate import tabulate   # <-- for pretty tables
+from tabulate import tabulate
 import os
 from datetime import datetime
 import sys
 import argparse
 import logging
+import re
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # ---------------------------
 # 0. Set environment variables for offline operation
@@ -55,6 +84,190 @@ def print_warning(text):
 def print_progress(text):
     """Print progress message"""
     print(f"{Colors.OKCYAN}🔄 {text}{Colors.ENDC}")
+
+# ---------------------------
+# Regex-based fallback extractor
+# ---------------------------
+def extract_fields_with_regex(text):
+    """
+    Fallback extractor using regex patterns for German documents
+    Returns a dictionary with extracted fields or empty strings
+    """
+    print_info("Using regex fallback extractor...")
+    
+    result = {
+        "Date": "",
+        "Angebot": "",
+        "SenderCompany": "",
+        "SenderAddress": ""
+    }
+    
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text.strip())
+    
+    # Extract date (German format: DD.MM.YYYY or DD/MM/YYYY)
+    date_patterns = [
+        r'\b(\d{1,2}[./]\d{1,2}[./]\d{4})\b',
+        r'Datum[:\s]*(\d{1,2}[./]\d{1,2}[./]\d{4})',
+        r'vom[:\s]*(\d{1,2}[./]\d{1,2}[./]\d{4})',
+    ]
+    
+    for pattern in date_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            result["Date"] = match.group(1)
+            break
+    
+    # Extract quotation number
+    angebot_patterns = [
+        r'Angebot(?:s?-?Nr\.?|s?nummer)?[:\s]*([A-Za-z0-9.\-/]+)',
+        r'Offerte[:\s]*([A-Za-z0-9.\-/]+)',
+        r'Quotation[:\s]*([A-Za-z0-9.\-/]+)',
+        r'Nr\.?\s*([A-Za-z0-9.\-/]{3,})',
+    ]
+    
+    for pattern in angebot_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            # Clean up the match
+            angebot = match.group(1).strip()
+            if len(angebot) >= 3:  # Minimum reasonable length
+                result["Angebot"] = angebot
+                break
+    
+    # Extract company name (look for legal forms)
+    company_patterns = [
+        r'([^.\n]+(?:GmbH|AG|UG|KG|OHG|mbH)(?:\s*&\s*Co\.?\s*KG)?)',
+        r'([A-Z][^.\n]*(?:GmbH|AG|UG|KG|OHG|mbH))',
+        r'([A-ZÄÖÜ][a-zäöüß\s]+(?:GmbH|AG|UG|KG|OHG|mbH))',
+    ]
+    
+    for pattern in company_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            # Take the first reasonable match
+            company = matches[0].strip()
+            if len(company) > 5 and not any(word in company.lower() for word in ['seite', 'page', 'datum']):
+                result["SenderCompany"] = company
+                break
+    
+    # Extract address (look for postal codes and cities)
+    address_patterns = [
+        r'(\d{5}\s+[A-ZÄÖÜ][a-zäöüß\s]+)',  # German postal code + city
+        r'([A-ZÄÖÜ][a-zäöüß\s]+-?[Ss]tr(?:aße|\.)\s*\d+[a-z]?(?:,?\s*\d{5}\s+[A-ZÄÖÜ][a-zäöüß\s]+)?)',
+        r'([A-ZÄÖÜ][a-zäöüß\s]+-?[Ww]eg\s*\d+[a-z]?(?:,?\s*\d{5}\s+[A-ZÄÖÜ][a-zäöüß\s]+)?)',
+    ]
+    
+    for pattern in address_patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            # Combine street and city if found separately
+            addresses = []
+            for match in matches[:2]:  # Take first 2 matches
+                if match.strip() and len(match.strip()) > 5:
+                    addresses.append(match.strip())
+            
+            if addresses:
+                result["SenderAddress"] = ", ".join(addresses)
+                break
+    
+    return result
+
+def preprocess_pdf_text(text, max_chars=2000):
+    """
+    Preprocess PDF text for better model performance
+    Focus on first part which typically contains key information
+    """
+    if not text:
+        return ""
+    
+    # Normalize whitespace
+    text = re.sub(r'\n\s*\n', '\n', text)  # Remove multiple newlines
+    text = re.sub(r'\s+', ' ', text)       # Normalize spaces
+    text = text.strip()
+    
+    # Take first portion which usually contains header information
+    if len(text) > max_chars:
+        # Try to cut at a reasonable boundary (sentence or paragraph)
+        truncated = text[:max_chars]
+        last_period = truncated.rfind('.')
+        last_newline = truncated.rfind('\n')
+        
+        cut_point = max(last_period, last_newline)
+        if cut_point > max_chars * 0.8:  # If we found a good cut point
+            text = text[:cut_point + 1]
+        else:
+            text = truncated + "..."
+    
+    return text
+
+def extract_tables_with_pdfplumber(pdf_path):
+    """
+    Extract tables directly using pdfplumber without AI model
+    Returns a list of normalized table data
+    """
+    print_progress("Extracting tables directly from PDF...")
+    
+    tables = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages, 1):
+                page_tables = page.extract_tables()
+                
+                for table_num, table in enumerate(page_tables):
+                    if table and len(table) > 1:  # Skip empty or single-row tables
+                        # Normalize table data
+                        normalized_table = []
+                        headers = None
+                        
+                        for row_idx, row in enumerate(table):
+                            # Clean up row data
+                            cleaned_row = []
+                            for cell in row:
+                                if cell is None:
+                                    cleaned_row.append("")
+                                else:
+                                    # Clean whitespace and normalize
+                                    cleaned_cell = str(cell).strip().replace('\n', ' ')
+                                    cleaned_row.append(cleaned_cell)
+                            
+                            # First non-empty row becomes headers
+                            if headers is None and any(cell for cell in cleaned_row):
+                                headers = cleaned_row
+                                continue
+                            
+                            # Skip rows that look like totals or summaries
+                            row_text = ' '.join(cleaned_row).lower()
+                            if any(keyword in row_text for keyword in ['summe', 'total', 'gesamt', 'zwischensumme']):
+                                continue
+                            
+                            # Skip empty rows
+                            if not any(cell.strip() for cell in cleaned_row):
+                                continue
+                            
+                            # Create row dictionary
+                            if headers:
+                                row_dict = {}
+                                for i, header in enumerate(headers):
+                                    if i < len(cleaned_row):
+                                        # Truncate long values
+                                        value = cleaned_row[i][:40] + "..." if len(cleaned_row[i]) > 40 else cleaned_row[i]
+                                        row_dict[header or f"Column_{i+1}"] = value
+                                    else:
+                                        row_dict[header or f"Column_{i+1}"] = ""
+                                
+                                normalized_table.append(row_dict)
+                        
+                        if normalized_table:
+                            tables.extend(normalized_table)
+                            print_info(f"Extracted {len(normalized_table)} rows from page {page_num}, table {table_num + 1}")
+    
+    except Exception as e:
+        print_error(f"Error extracting tables with pdfplumber: {e}")
+        return []
+    
+    return tables
+
 # ---------------------------
 # 1. Extract raw text from PDF
 # ---------------------------
@@ -375,16 +588,18 @@ query = """
 Extract the following fields from this German quotation PDF and return them as strict JSON with the keys Date, Angebot, SenderCompany, SenderAddress.
 
 Fields to extract:
-- Date: Document date (format DD.MM.YYYY)
-- Angebot: Quotation/offer number (may be labeled as Angebot, Belegnummer, ANG, etc.)
-- SenderCompany: Company name of the sender
-- SenderAddress: Complete address of the sender
+- Date: Document date (format DD.MM.YYYY or DD/MM/YYYY)
+- Angebot: Quotation/offer number (may be labeled as Angebot, Angebotsnummer, Belegnummer, ANG, Nr., etc.)
+- SenderCompany: Company name of the sender (look for GmbH, AG, UG, KG, etc.)
+- SenderAddress: Complete address of the sender (street, postal code, city)
 
-Rules:
-1. Return ONLY a valid JSON object
-2. If a field is missing, set it to an empty string
+CRITICAL RULES:
+1. Return ONLY a valid JSON object, no additional text
+2. If a field is missing, set it to an empty string ""
 3. Do not include any additional keys or explanatory text
 4. Use exactly these key names: Date, Angebot, SenderCompany, SenderAddress
+5. Do not include bullet points, markdown, or formatting
+6. The response must be parseable by json.loads()
 
 JSON format:
 {
@@ -441,7 +656,7 @@ print(f"{Colors.OKCYAN}{fields_response}{Colors.ENDC}")
 print_header("TABLE EXTRACTION")
 
 # Try pdfplumber first (more reliable for structured tables)
-pdfplumber_tables = extract_table_with_pdfplumber(args.pdf)
+pdfplumber_tables = extract_tables_with_pdfplumber(args.pdf)
 
 cleaned_table = []
 if pdfplumber_tables:
@@ -508,10 +723,43 @@ else:
 # ---------------------------
 # 8. Completion Summary
 # ---------------------------
+# ---------------------------
+# Save results if output file specified
+# ---------------------------
+if hasattr(args, 'output') and args.output:
+    try:
+        output_data = {
+            "metadata": {
+                "processed_at": datetime.now().isoformat(),
+                "pdf_file": args.pdf,
+                "model_path": model_path,
+                "processing_method": "DeepSeek + pdfplumber"
+            },
+            "extracted_fields": parsed_fields if 'parsed_fields' in locals() else {},
+            "extracted_tables": cleaned_table if 'cleaned_table' in locals() else []
+        }
+        
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        
+        print_success(f"Results saved to: {args.output}")
+        
+    except Exception as e:
+        print_error(f"Failed to save results: {e}")
+
 print_header("PROCESSING COMPLETE")
 print_success(f"PDF processing completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print_info("All data processed locally with DeepSeek model")
 print_success("🔒 Data privacy maintained - no external data transmission")
+
+# Summary statistics
+if 'parsed_fields' in locals():
+    fields_found = sum(1 for v in parsed_fields.values() if v and str(v).strip())
+    print_info(f"Fields extracted: {fields_found}/4")
+
+if 'cleaned_table' in locals():
+    print_info(f"Table rows extracted: {len(cleaned_table)}")
+
 print(f"\n{Colors.OKGREEN}{'='*80}{Colors.ENDC}")
 print(f"{Colors.OKGREEN}{'PDF PROCESSING SUCCESSFUL!'.center(80)}{Colors.ENDC}")
 print(f"{Colors.OKGREEN}{'='*80}{Colors.ENDC}")
