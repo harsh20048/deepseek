@@ -1,10 +1,11 @@
 import pdfplumber
-from embedchain import App
 import json
 from tabulate import tabulate   # <-- for pretty tables
 import os
 from datetime import datetime
 import sys
+import argparse
+import logging
 
 # ---------------------------
 # 0. Set environment variables for offline operation
@@ -87,13 +88,44 @@ def extract_text_from_pdf(pdf_path):
     return text
 
 # ---------------------------
-# 2. Configure Embedchain with DeepSeek (Local Offline)
+# 2. Parse command line arguments and configure paths
 # ---------------------------
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="DeepSeek PDF Processor - Extract structured data from German PDFs")
+    parser.add_argument("--pdf", default="german_quotation.pdf", help="Path to PDF file to process")
+    parser.add_argument("--model", default=None, help="Path to DeepSeek model directory")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
+    return parser.parse_args()
+
+args = parse_arguments()
+
+# Configure logging
+if args.verbose:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('deepseek_pdf_processor.log'),
+            logging.StreamHandler()
+        ]
+    )
+else:
+    logging.basicConfig(level=logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
 print_header("DEEPSEEK PDF PROCESSING SYSTEM")
 print_info(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print_info(f"Processing PDF: {args.pdf}")
+logger.info(f"Starting processing of {args.pdf}")
 
-# Get the current directory where the model files are located
-model_path = os.path.dirname(os.path.abspath(__file__))
+# Configure model path
+if args.model:
+    model_path = args.model
+else:
+    # Try environment variable first, then default to local model directory
+    model_path = os.environ.get("DEEPSEEK_MODEL_PATH", 
+                               os.path.join(os.path.dirname(os.path.abspath(__file__)), "model"))
 
 print_header("MODEL INITIALIZATION")
 print_info(f"Loading DeepSeek model from local path: {model_path}")
@@ -127,7 +159,14 @@ except Exception as e:
 # 3. Load PDF and process with local model
 # ---------------------------
 print_header("PDF PROCESSING")
-pdf_text = extract_text_from_pdf("german_quotation.pdf")
+
+# Check if PDF file exists
+if not os.path.exists(args.pdf):
+    print_error(f"PDF file not found: {args.pdf}")
+    print_info("Usage: python test.py --pdf path/to/your/file.pdf")
+    sys.exit(1)
+
+pdf_text = extract_text_from_pdf(args.pdf)
 
 if pdf_text is None:
     print_error("Failed to extract text from PDF. Exiting...")
@@ -135,39 +174,219 @@ if pdf_text is None:
 
 print_success("PDF content extracted successfully")
 
-def query_local_model(prompt, max_length=512):
-    """Query the local DeepSeek model"""
+def preprocess_pdf_text(text, max_chars=1500):
+    """Preprocess PDF text for better model performance"""
+    if not text:
+        return ""
+    
+    # Normalize whitespace
+    import re
+    text = re.sub(r'\s+', ' ', text.strip())
+    
+    # Take first portion which usually contains key information
+    if len(text) > max_chars:
+        # Try to cut at a sentence boundary
+        truncated = text[:max_chars]
+        last_period = truncated.rfind('.')
+        if last_period > max_chars * 0.7:  # If we find a period in the last 30%
+            text = truncated[:last_period + 1]
+        else:
+            text = truncated + "..."
+        print_info(f"Text truncated to {len(text)} characters for better processing")
+    
+    return text
+
+def extract_fields_with_regex(text):
+    """Enhanced regex-based field extractor with broader patterns"""
+    import re
+    
+    fields = {
+        "Date": "",
+        "Angebot": "",
+        "SenderCompany": "",
+        "SenderAddress": ""
+    }
+    
+    # Clean text for better pattern matching
+    cleaned_text = re.sub(r'\s+', ' ', text.strip())
+    
+    # 1. Extract date - support multiple formats
+    date_patterns = [
+        r'\b(\d{1,2}[./]\d{1,2}[./]\d{2,4})\b',  # DD.MM.YYYY or DD/MM/YY
+        r'\b(\d{4}-\d{2}-\d{2})\b',              # YYYY-MM-DD
+        r'(?:Datum|vom|am)[:.]?\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4})',  # "Datum: DD.MM.YYYY"
+    ]
+    
+    for pattern in date_patterns:
+        date_match = re.search(pattern, cleaned_text, re.IGNORECASE)
+        if date_match:
+            date_str = date_match.group(1)
+            # Skip placeholder dates
+            if not re.match(r'XX\.XX\.20XX|00\.00\.0000', date_str):
+                fields["Date"] = date_str
+                break
+    
+    # 2. Extract quotation number - recognize multiple labels
+    angebot_patterns = [
+        r'(Angebot(?:s|s?-?Nr\.?|s?nummer)?)\s*[:.-]?\s*([A-Za-z0-9./-]+)',
+        r'(Belegnummer|Beleg-Nr\.?)\s*[:.-]?\s*([A-Za-z0-9./-]+)',
+        r'(ANG|AG)[-.]?\s*(\d{4}[-.]?\d{1,4})',  # ANG-2025-330
+        r'(Offerte|Kostenvoranschlag)[-.]?(?:Nr\.?)?\s*[:.-]?\s*([A-Za-z0-9./-]+)',
+    ]
+    
+    for pattern in angebot_patterns:
+        angebot_match = re.search(pattern, cleaned_text, re.IGNORECASE)
+        if angebot_match:
+            fields["Angebot"] = angebot_match.group(2).strip()
+            break
+    
+    # 3. Extract company name - look in first 10 lines
+    lines = cleaned_text.split('\n')[:10]
+    company_patterns = [
+        r'([A-Za-zÄÖÜäöüß\s&.-]{3,50}(?:GmbH|AG|KG|OHG|mbH|e\.K\.|UG))',
+        r'([A-Za-zÄÖÜäöüß\s&.-]{10,50})\s+(?:Straße|Str\.|Platz)',  # Company before address
+    ]
+    
+    for line in lines:
+        for pattern in company_patterns:
+            company_match = re.search(pattern, line)
+            if company_match:
+                company = company_match.group(1).strip()
+                if len(company) > 5:  # Avoid single words
+                    fields["SenderCompany"] = company
+                    break
+        if fields["SenderCompany"]:
+            break
+    
+    # 4. Extract address - look for postal code and city
+    address_patterns = [
+        r'([A-Za-zÄÖÜäöüß\s.-]+\d{5}\s+[A-Za-zÄÖÜäöüß\s-]+)',  # Street + PLZ + City
+        r'(\d{5}\s+[A-Za-zÄÖÜäöüß\s-]+)',  # PLZ + City only
+        r'([A-Za-zÄÖÜäöüß\s.-]+(?:straße|str\.|platz|weg|gasse)[^0-9]*\d+[^0-9]*\d{5}\s+[A-Za-zÄÖÜäöüß\s-]+)',  # Full address
+    ]
+    
+    for pattern in address_patterns:
+        address_match = re.search(pattern, cleaned_text, re.IGNORECASE)
+        if address_match:
+            address = address_match.group(1).strip()
+            # Clean up the address
+            address = re.sub(r'\s+', ' ', address)
+            if len(address) > 10:  # Meaningful address
+                fields["SenderAddress"] = address
+                break
+    
+    return fields
+
+def extract_table_with_pdfplumber(pdf_path):
+    """Extract table data directly using pdfplumber"""
+    import pdfplumber
+    
+    print_progress("Extracting tables directly from PDF...")
+    
+    all_tables = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages, 1):
+                tables = page.extract_tables()
+                
+                for table in tables:
+                    if not table or len(table) < 2:  # Skip empty or single-row tables
+                        continue
+                    
+                    # Process header row
+                    header = table[0] if table else []
+                    header = [str(cell).strip() if cell else f"Column_{i+1}" for i, cell in enumerate(header)]
+                    
+                    # Process data rows
+                    for row in table[1:]:
+                        if not row or all(not cell or str(cell).strip() == '' for cell in row):
+                            continue  # Skip empty rows
+                        
+                        # Skip total/summary rows
+                        first_cell = str(row[0] or '').lower().strip()
+                        if any(keyword in first_cell for keyword in ['summe', 'total', 'gesamt', 'netto', 'brutto', 'mwst']):
+                            continue
+                        
+                        # Create row dict
+                        row_dict = {}
+                        for i, cell in enumerate(row):
+                            col_name = header[i] if i < len(header) else f"Column_{i+1}"
+                            cell_value = str(cell).strip() if cell else ""
+                            
+                            # Truncate to 40 characters
+                            if len(cell_value) > 40:
+                                cell_value = cell_value[:40] + "..."
+                            
+                            row_dict[col_name] = cell_value
+                        
+                        all_tables.append(row_dict)
+                
+                if all_tables:  # Found tables, don't need to check more pages
+                    break
+    
+    except Exception as e:
+        print_error(f"Error extracting tables with pdfplumber: {e}")
+        return []
+    
+    print_success(f"Extracted {len(all_tables)} table rows using pdfplumber")
+    return all_tables
+
+def query_local_model(prompt, max_new_tokens=512):
+    """Query the local DeepSeek model with improved parameters"""
     try:
         inputs = tokenizer.encode(prompt, return_tensors="pt")
+        
+        # Check if input is too long and truncate if necessary
+        max_input_length = 2048  # Set a reasonable input limit
+        if inputs.shape[1] > max_input_length:
+            inputs = inputs[:, -max_input_length:]  # Take the last max_input_length tokens
+            print_warning(f"Input truncated to {max_input_length} tokens")
+        
         with torch.no_grad():
             outputs = model.generate(
                 inputs, 
-                max_length=max_length,
-                num_return_sequences=1,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id
+                max_new_tokens=max_new_tokens,  # Control only the generated output length
+                do_sample=False,                # Deterministic output for reproducibility
+                temperature=0.0,                # No randomness for consistent results
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                attention_mask=torch.ones_like(inputs)
             )
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        return response
+        
+        # Decode only the new tokens (excluding the input prompt)
+        response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+        return response.strip()
+        
     except Exception as e:
         print_error(f"Error querying model: {e}")
         return "Error processing query"
 
 # ---------------------------
-# 4. Query for structured fields
+# 4. Enhanced field extraction with validation and fallback
 # ---------------------------
 print_header("FIELD EXTRACTION")
 print_progress("Extracting structured fields from German quotation...")
 
-query = """
-Extract the following fields from this German quotation PDF:
-- Date (Datum)
-- Angebot (quotation number)
-- Sender company name (Firma)
-- Sender address (Straße, PLZ, Ort)
+# Preprocess PDF text for better model performance
+processed_text = preprocess_pdf_text(pdf_text, max_chars=2500)  # Increased limit
 
-Return result in JSON:
+# Improved prompt with explicit instructions
+query = """
+Extract the following fields from this German quotation PDF and return them as strict JSON with the keys Date, Angebot, SenderCompany, SenderAddress.
+
+Fields to extract:
+- Date: Document date (format DD.MM.YYYY)
+- Angebot: Quotation/offer number (may be labeled as Angebot, Belegnummer, ANG, etc.)
+- SenderCompany: Company name of the sender
+- SenderAddress: Complete address of the sender
+
+Rules:
+1. Return ONLY a valid JSON object
+2. If a field is missing, set it to an empty string
+3. Do not include any additional keys or explanatory text
+4. Use exactly these key names: Date, Angebot, SenderCompany, SenderAddress
+
+JSON format:
 {
   "Date": "",
   "Angebot": "",
@@ -177,56 +396,100 @@ Return result in JSON:
 """
 
 print_info("Querying DeepSeek model for field extraction...")
-full_prompt = f"PDF Content:\n{pdf_text}\n\n{query}"
-fields_response = query_local_model(full_prompt)
+full_prompt = f"PDF Content:\n{processed_text}\n\n{query}"
+fields_response = query_local_model(full_prompt, max_new_tokens=256)
+
+# Validate and parse JSON response
+import json
+parsed_fields = None
+try:
+    parsed_fields = json.loads(fields_response)
+    # Validate that we got reasonable fields
+    if not isinstance(parsed_fields, dict):
+        raise ValueError("Response is not a dictionary")
+    
+    # Check if all required keys exist and have meaningful values
+    required_keys = ["Date", "Angebot", "SenderCompany", "SenderAddress"]
+    if not all(k in parsed_fields for k in required_keys):
+        raise ValueError("Missing required keys")
+    
+    # Check if we got meaningful data (not all empty)
+    if all(not parsed_fields.get(k, "").strip() for k in required_keys):
+        raise ValueError("All fields are empty")
+        
+    print_success("AI model successfully extracted structured fields")
+    
+except (json.JSONDecodeError, ValueError) as e:
+    print_warning(f"AI model returned invalid response: {e}")
+    print_info("Falling back to regex-based extraction...")
+    parsed_fields = extract_fields_with_regex(pdf_text)
+    print_success("Regex fallback extraction completed")
 
 print_header("EXTRACTED FIELDS")
+print(f"{Colors.OKGREEN}📅 Date: {parsed_fields.get('Date', 'Not found')}{Colors.ENDC}")
+print(f"{Colors.OKGREEN}📄 Angebot: {parsed_fields.get('Angebot', 'Not found')}{Colors.ENDC}")
+print(f"{Colors.OKGREEN}🏢 Company: {parsed_fields.get('SenderCompany', 'Not found')}{Colors.ENDC}")
+print(f"{Colors.OKGREEN}📍 Address: {parsed_fields.get('SenderAddress', 'Not found')}{Colors.ENDC}")
+
+# Also show raw response for debugging
+print(f"\n{Colors.OKCYAN}Raw AI Response:{Colors.ENDC}")
 print(f"{Colors.OKCYAN}{fields_response}{Colors.ENDC}")
 
 # ---------------------------
-# 5. Query for tables (with 40-char rule)
+# 5. Enhanced table extraction with pdfplumber fallback
 # ---------------------------
 print_header("TABLE EXTRACTION")
-print_progress("Extracting tabular data from German quotation...")
+
+# Try pdfplumber first (more reliable for structured tables)
+pdfplumber_tables = extract_table_with_pdfplumber(args.pdf)
+
+cleaned_table = []
+if pdfplumber_tables:
+    print_success("Using pdfplumber table extraction (more reliable)")
+    cleaned_table = pdfplumber_tables
+else:
+    print_info("pdfplumber found no tables, trying AI model extraction...")
 
 table_query = """
-Extract all tabular data from this German quotation.
+Extract all tabular data from this German quotation and return as a JSON array.
 Columns may include:
-- Artikel-Nr (or Pos, Artikelnummer, etc.)
-- Bezeichnung (description)
-- Menge (quantity)
-- Preis (Einzelpreis, unit price)
-- Gesamt (Gesamtpreis, total)
+- Pos/Artikel-Nr: Position or article number
+- Bezeichnung: Description of item/service
+- Menge: Quantity
+- Einzelpreis: Unit price
+- Gesamt: Total price
 
 Rules:
-1. Return result as JSON array of rows.
-2. Each value must be plain text.
-3. Each value must be max 40 characters (truncate if longer).
-4. Only include relevant product/item rows (no headers, no totals).
+1. Return ONLY a valid JSON array of objects
+2. Each object represents one table row
+3. Use consistent key names across all rows
+4. Truncate values to max 40 characters
+5. Skip header rows and total/summary rows
+6. Only include actual product/service items
+
+Example format:
+[
+  {"Pos": "1", "Bezeichnung": "Product A", "Menge": "2", "Einzelpreis": "10.00", "Gesamt": "20.00"},
+  {"Pos": "2", "Bezeichnung": "Product B", "Menge": "1", "Einzelpreis": "15.00", "Gesamt": "15.00"}
+]
 """
 
 print_info("Querying DeepSeek model for table extraction...")
-full_table_prompt = f"PDF Content:\n{pdf_text}\n\n{table_query}"
-table_response = query_local_model(full_table_prompt)
-
-# ---------------------------
-# 6. Truncate in Python (extra safety)
-# ---------------------------
-def truncate_table_json(table_json, max_len=40):
-    """Clean and truncate table data for better display"""
+    full_table_prompt = f"PDF Content:\n{processed_text}\n\n{table_query}"
+    table_response = query_local_model(full_table_prompt, max_new_tokens=1024)
+    
+    # Try to parse AI response
     try:
-        data = json.loads(table_json)
-        for row in data:
-            for key, value in row.items():
-                if isinstance(value, str) and len(value) > max_len:
-                    row[key] = value[:max_len] + "..."
-        return data
-    except Exception as e:
-        print_error(f"Error cleaning table JSON: {e}")
-        return []
-
-print_progress("Processing and cleaning table data...")
-cleaned_table = truncate_table_json(table_response, max_len=40)
+        ai_table = json.loads(table_response)
+        if isinstance(ai_table, list) and ai_table:
+            print_success("AI model successfully extracted table data")
+            cleaned_table = ai_table
+        else:
+            raise ValueError("AI returned empty or invalid table")
+    except (json.JSONDecodeError, ValueError) as e:
+        print_warning(f"AI model table extraction failed: {e}")
+        print_info("No reliable table data could be extracted")
+        cleaned_table = []
 
 # ---------------------------
 # 7. Print as pretty table
