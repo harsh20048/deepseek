@@ -16,37 +16,176 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Enhanced CSS for professional UI
 st.markdown("""
 <style>
+    /* Main styling */
     .main-header {
-        font-size: 2.5rem;
+        background: linear-gradient(90deg, #1f77b4 0%, #ff7f0e 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3rem;
         font-weight: bold;
-        color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
+        padding: 1rem 0;
     }
-    .success-box {
-        background-color: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 0.375rem;
-        padding: 1rem;
+    
+    .subtitle {
+        text-align: center;
+        color: #666;
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+        font-style: italic;
+    }
+    
+    /* Card styling */
+    .info-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
         margin: 1rem 0;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        border: none;
     }
-    .error-box {
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        border-radius: 0.375rem;
-        padding: 1rem;
+    
+    .success-card {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
         margin: 1rem 0;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
     }
-    .info-box {
-        background-color: #d1ecf1;
-        border: 1px solid #bee5eb;
-        border-radius: 0.375rem;
-        padding: 1rem;
+    
+    .warning-card {
+        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
         margin: 1rem 0;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.1);
     }
+    
+    .field-card {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        border-left: 5px solid #1f77b4;
+    }
+    
+    .field-title {
+        font-size: 1.3rem;
+        font-weight: bold;
+        color: #1f77b4;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+    }
+    
+    .field-value {
+        font-size: 1.1rem;
+        color: #333;
+        background: rgba(255,255,255,0.8);
+        padding: 0.8rem;
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        word-break: break-word;
+    }
+    
+    /* Metrics styling */
+    .metric-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        color: white;
+        margin: 0.5rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+    
+    .metric-label {
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    
+    /* Progress styling */
+    .progress-container {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        height: 30px;
+        border-radius: 15px;
+        overflow: hidden;
+        margin: 1rem 0;
+        position: relative;
+    }
+    
+    .progress-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        font-weight: bold;
+        font-size: 0.9rem;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 0.75rem 2rem;
+        border-radius: 25px;
+        font-weight: bold;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+    
+    /* Sidebar styling */
+    .sidebar-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 1rem;
+        font-weight: bold;
+    }
+    
+    /* Table styling */
+    .dataframe {
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* Upload area styling */
+    .uploadedFile {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display:none;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,23 +352,58 @@ def truncate_table_json(table_json, max_len=40):
         # Return a simple fallback
         return [{"Error": "Could not parse table data", "Raw_Response": table_json[:100] + "..."}]
 
-# Main UI
+# Main UI with enhanced styling
 st.markdown('<h1 class="main-header">🔍 DeepSeek PDF Processor</h1>', unsafe_allow_html=True)
-st.markdown("**Process German PDFs with your local DeepSeek model - 100% Offline & Private**")
+st.markdown('<p class="subtitle">🔒 Process German PDFs with your local DeepSeek model - 100% Offline & Private</p>', unsafe_allow_html=True)
 
-# Sidebar for model status
+# Add a beautiful info banner
+st.markdown("""
+<div class="info-card">
+    <h3 style="margin-top: 0;">🚀 AI-Powered Document Processing</h3>
+    <p style="margin-bottom: 0;">
+        Extract structured data from German quotations and invoices using state-of-the-art 
+        DeepSeek AI technology. All processing happens locally on your machine - your documents 
+        never leave your computer!
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# Enhanced Sidebar
 with st.sidebar:
-    st.header("🤖 Model Status")
+    st.markdown('<div class="sidebar-header">🤖 Model Control Center</div>', unsafe_allow_html=True)
     
     if not st.session_state.model_loaded:
-        if st.button("Load DeepSeek Model", type="primary"):
+        st.markdown("""
+        <div class="warning-card">
+            <h4 style="margin-top: 0;">⚠️ Model Not Loaded</h4>
+            <p style="margin-bottom: 0;">Click below to initialize your local DeepSeek model</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🚀 Load DeepSeek Model", type="primary"):
             if load_model():
-                st.success("✅ Model loaded successfully!")
+                st.markdown("""
+                <div class="success-card">
+                    <h4 style="margin-top: 0;">✅ Success!</h4>
+                    <p style="margin-bottom: 0;">Model loaded and ready to process PDFs</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.rerun()
             else:
-                st.error("❌ Failed to load model")
+                st.markdown("""
+                <div class="warning-card">
+                    <h4 style="margin-top: 0;">❌ Loading Failed</h4>
+                    <p style="margin-bottom: 0;">Please check your model files and try again</p>
+                </div>
+                """, unsafe_allow_html=True)
     else:
-        st.success("✅ Model loaded and ready!")
-        st.info("🔒 Running completely offline")
+        st.markdown("""
+        <div class="success-card">
+            <h4 style="margin-top: 0;">✅ Model Ready</h4>
+            <p>🔒 Running completely offline</p>
+            <p style="margin-bottom: 0;">🚀 Ready to process your PDFs!</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.header("📋 Instructions")
     st.markdown("""
@@ -355,64 +529,77 @@ else:
                         }
                         all_results.append(file_result)
                         
-                        # Display fields for this file in a beautiful format
-                        with st.expander(f"📋 Fields from {uploaded_file.name}", expanded=True):
+                        # Display fields in beautiful cards
+                        with st.expander(f"📋 Extracted Data from {uploaded_file.name}", expanded=True):
                             if isinstance(parsed_fields, dict) and "Raw_Response" not in parsed_fields:
-                                # Create a beautiful table for the fields
-                                col1, col2 = st.columns([1, 2])
+                                st.markdown("### 🎯 Document Information")
                                 
-                                with col1:
-                                    st.markdown("**📅 Date:**")
-                                    st.markdown("**📄 Quotation Number:**")
-                                    st.markdown("**🏢 Company:**")
-                                    st.markdown("**📍 Address:**")
-                                
-                                with col2:
-                                    st.markdown(f"`{parsed_fields.get('Date', 'Not found')}`")
-                                    st.markdown(f"`{parsed_fields.get('Angebot', 'Not found')}`")
-                                    st.markdown(f"`{parsed_fields.get('SenderCompany', 'Not found')}`")
-                                    st.markdown(f"`{parsed_fields.get('SenderAddress', 'Not found')}`")
-                                
-                                # Show as cards
-                                st.markdown("---")
+                                # Create beautiful field cards
                                 col1, col2 = st.columns(2)
                                 
                                 with col1:
-                                    with st.container():
-                                        st.markdown("""
-                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
-                                            <h4 style='margin: 0; color: #1f77b4;'>📅 Document Date</h4>
-                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
-                                        </div>
-                                        """.format(parsed_fields.get('Date', 'Not found')), unsafe_allow_html=True)
+                                    st.markdown(f"""
+                                    <div class="field-card">
+                                        <div class="field-title">📅 Document Date</div>
+                                        <div class="field-value">{parsed_fields.get('Date', 'Not found')}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                                     
-                                    with st.container():
-                                        st.markdown("""
-                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
-                                            <h4 style='margin: 0; color: #1f77b4;'>🏢 Company Name</h4>
-                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
-                                        </div>
-                                        """.format(parsed_fields.get('SenderCompany', 'Not found')), unsafe_allow_html=True)
+                                    st.markdown(f"""
+                                    <div class="field-card">
+                                        <div class="field-title">🏢 Company Name</div>
+                                        <div class="field-value">{parsed_fields.get('SenderCompany', 'Not found')}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                                 
                                 with col2:
-                                    with st.container():
-                                        st.markdown("""
-                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
-                                            <h4 style='margin: 0; color: #1f77b4;'>📄 Quotation Number</h4>
-                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
-                                        </div>
-                                        """.format(parsed_fields.get('Angebot', 'Not found')), unsafe_allow_html=True)
+                                    st.markdown(f"""
+                                    <div class="field-card">
+                                        <div class="field-title">📄 Quotation Number</div>
+                                        <div class="field-value">{parsed_fields.get('Angebot', 'Not found')}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                                     
-                                    with st.container():
-                                        st.markdown("""
-                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
-                                            <h4 style='margin: 0; color: #1f77b4;'>📍 Address</h4>
-                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
-                                        </div>
-                                        """.format(parsed_fields.get('SenderAddress', 'Not found')), unsafe_allow_html=True)
+                                    st.markdown(f"""
+                                    <div class="field-card">
+                                        <div class="field-title">📍 Company Address</div>
+                                        <div class="field-value">{parsed_fields.get('SenderAddress', 'Not found')}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                
+                                # Add extraction quality indicator
+                                fields_found = sum(1 for v in parsed_fields.values() if v and str(v).strip() and str(v).strip() != 'Not found')
+                                quality_percentage = (fields_found / 4) * 100
+                                
+                                if quality_percentage >= 75:
+                                    quality_color = "#4facfe"
+                                    quality_text = "Excellent"
+                                elif quality_percentage >= 50:
+                                    quality_color = "#667eea"
+                                    quality_text = "Good"
+                                else:
+                                    quality_color = "#fa709a"
+                                    quality_text = "Partial"
+                                
+                                st.markdown(f"""
+                                <div style="background: linear-gradient(135deg, {quality_color} 0%, {quality_color}88 100%); 
+                                           color: white; padding: 1rem; border-radius: 10px; margin: 1rem 0; text-align: center;">
+                                    <h4 style="margin: 0;">🎯 Extraction Quality: {quality_text}</h4>
+                                    <p style="margin: 0.5rem 0;">Found {fields_found} out of 4 fields ({quality_percentage:.0f}%)</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
                             else:
-                                # Fallback to text display for raw responses
-                                st.text_area("Raw AI Response", parsed_fields.get("Raw_Response", str(parsed_fields)), height=150)
+                                # Enhanced fallback display
+                                st.markdown("""
+                                <div class="warning-card">
+                                    <h4 style="margin-top: 0;">⚠️ Raw AI Response</h4>
+                                    <p>The AI model returned unstructured data. This might happen with complex documents.</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                raw_response = parsed_fields.get("Raw_Response", str(parsed_fields))
+                                st.code(raw_response[:500] + "..." if len(raw_response) > 500 else raw_response)
                         
                         # Table extraction query
                         table_query = """
@@ -494,19 +681,54 @@ else:
                         else:
                             st.warning(f"No table data found in {uploaded_file.name}")
             
-            # Summary section
+            # Enhanced Summary section
             st.markdown("---")
-            st.header("📊 Batch Processing Summary")
+            st.markdown("## 📊 Batch Processing Dashboard")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
+            
             with col1:
-                st.metric("Files Processed", len(all_results))
+                st.markdown(f"""
+                <div class="metric-container">
+                    <div class="metric-value">{len(all_results)}</div>
+                    <div class="metric-label">📄 Files Processed</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
             with col2:
                 total_tables = sum(len(table) for table in all_tables)
-                st.metric("Total Table Rows", total_tables)
+                st.markdown(f"""
+                <div class="metric-container">
+                    <div class="metric-value">{total_tables}</div>
+                    <div class="metric-label">📊 Table Rows</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
             with col3:
                 total_chars = sum(result['text_length'] for result in all_results)
-                st.metric("Total Characters", f"{total_chars:,}")
+                st.markdown(f"""
+                <div class="metric-container">
+                    <div class="metric-value">{total_chars:,}</div>
+                    <div class="metric-label">📝 Characters</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col4:
+                # Calculate average extraction quality
+                total_fields = 0
+                found_fields = 0
+                for result in all_results:
+                    if isinstance(result['fields'], dict) and "Raw_Response" not in result['fields']:
+                        total_fields += 4
+                        found_fields += sum(1 for v in result['fields'].values() if v and str(v).strip() and str(v).strip() != 'Not found')
+                
+                avg_quality = (found_fields / total_fields * 100) if total_fields > 0 else 0
+                st.markdown(f"""
+                <div class="metric-container">
+                    <div class="metric-value">{avg_quality:.0f}%</div>
+                    <div class="metric-label">🎯 Avg Quality</div>
+                </div>
+                """, unsafe_allow_html=True)
             
             # Combined results
             if all_results:
@@ -578,11 +800,25 @@ else:
                         mime="application/json"
                     )
             
-            # Final success message
-            st.success("🎉 Batch processing completed successfully!")
-            st.info("🔒 All processing was done locally - no data was sent to external servers")
+            # Beautiful completion message
+            st.markdown("""
+            <div class="success-card" style="text-align: center; margin: 2rem 0;">
+                <h2 style="margin-top: 0;">🎉 Processing Complete!</h2>
+                <p style="font-size: 1.2rem;">All documents have been successfully processed</p>
+                <p style="margin-bottom: 0;">🔒 Everything was done locally - your data never left your computer</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Footer
+# Enhanced Footer
 st.markdown("---")
-st.markdown("**🔒 Privacy First**: This application runs completely offline using your local DeepSeek model. No data is sent to external servers.")
-st.markdown(f"**⏰ Last updated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.markdown("""
+<div class="info-card" style="text-align: center; margin-top: 3rem;">
+    <h3 style="margin-top: 0;">🔒 Privacy & Security</h3>
+    <p>This application runs completely offline using your local DeepSeek model.</p>
+    <p style="margin-bottom: 0.5rem;"><strong>✓ No data sent to external servers</strong></p>
+    <p style="margin-bottom: 0.5rem;"><strong>✓ All processing happens on your machine</strong></p>
+    <p style="margin-bottom: 0;"><strong>✓ Your documents remain completely private</strong></p>
+    <hr style="border-color: rgba(255,255,255,0.3); margin: 1rem 0;">
+    <p style="margin: 0; opacity: 0.8;">⏰ Session: {}</p>
+</div>
+""".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')), unsafe_allow_html=True)
