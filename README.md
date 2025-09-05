@@ -166,21 +166,67 @@ temperature = 0.7
 - **Preis** - Unit price
 - **Gesamt** - Total price
 
+## ⚠️ Important Limitations
+
+### Document Requirements
+
+1. **Machine-Readable PDFs Only**
+   - ❌ Scanned PDFs or image-based documents will fail
+   - ❌ Non-selectable text cannot be processed
+   - ✅ Solution: Use OCR preprocessing tools like Tesseract
+
+2. **German Language Optimized**
+   - ❌ Other languages may not be handled correctly
+   - ❌ Non-German date formats (YYYY-MM-DD) may be missed
+   - ✅ Optimized for German B2B quotations and invoices
+
+3. **Standard PDF Layouts**
+   - ❌ Complex table layouts with merged cells may fail
+   - ❌ Multi-column layouts can cause text extraction issues
+   - ❌ Heavily formatted documents may not parse correctly
+
+### Field Extraction Limitations
+
+4. **Regex Pattern Dependencies**
+   - ❌ Unconventional company names without "GmbH/AG" may be missed
+   - ❌ Non-standard quotation numbering (e.g., "Offerte-ID") may fail
+   - ❌ Alternative date formats may not be recognized
+
+5. **Table Processing Constraints**
+   - ❌ Complex table structures with varying column counts
+   - ❌ Tables with merged cells or multi-line entries
+   - ❌ Non-grid layouts may cause misalignment
+
+6. **AI Model Limitations**
+   - ❌ Model may misinterpret formatting or return empty responses
+   - ❌ No semantic understanding of context beyond training
+   - ❌ Performance depends on document quality and structure
+
 ## 🛠️ Troubleshooting
 
 ### Common Issues
 
-1. **Model Loading Error**
+1. **"No Text Extracted" Error**
+   - Check if PDF is machine-readable (can you select text?)
+   - For scanned PDFs, use OCR tools first
+   - Verify PDF is not password-protected
+
+2. **Model Loading Error**
    - Ensure all model files are in the correct directory
    - Check file permissions
    - Verify model path in configuration
 
-2. **Memory Issues**
+3. **Memory Issues**
    - Reduce `max_pdf_length` for large documents
    - Process fewer files simultaneously
    - Close other applications to free memory
 
-3. **Token Length Errors**
+4. **Poor Extraction Results**
+   - Check if document follows standard German quotation format
+   - Verify text is selectable in the PDF
+   - Try processing individual pages if document is complex
+
+5. **Token Length Errors**
    - The app automatically truncates long PDFs
    - Adjust `max_input_length` if needed
 
@@ -189,6 +235,7 @@ temperature = 0.7
 - **First Run**: Model loading takes time on first use
 - **Memory**: Ensure sufficient RAM for your model size
 - **Batch Processing**: Process files in smaller batches for large datasets
+- **Document Quality**: Higher quality PDFs produce better results
 
 ## 🔒 Privacy & Security
 
@@ -226,12 +273,31 @@ If you encounter any issues:
 
 ## 📈 Roadmap
 
-- [ ] Support for more document types
-- [ ] Advanced table extraction algorithms
-- [ ] Custom field extraction templates
-- [ ] API endpoint for integration
-- [ ] Docker containerization
-- [ ] Multi-language support
+### Planned Improvements
+
+- [ ] **OCR Integration** - Support for scanned/image-based PDFs
+- [ ] **Enhanced Table Processing** - Better handling of complex layouts
+- [ ] **Multi-language Support** - Support for English, French, etc.
+- [ ] **Custom Field Templates** - User-defined extraction patterns
+- [ ] **Advanced Date Recognition** - Support for various date formats
+- [ ] **Company Name Intelligence** - Better detection of unconventional names
+
+### Technical Enhancements
+
+- [ ] **API Endpoint** - REST API for integration
+- [ ] **Docker Container** - Easy deployment
+- [ ] **Batch Processing API** - Handle multiple files via API
+- [ ] **Result Validation** - Confidence scoring for extractions
+- [ ] **Export Formats** - Excel, XML, custom templates
+- [ ] **Processing History** - Track and review past extractions
+
+### Advanced Features
+
+- [ ] **Document Classification** - Auto-detect document types
+- [ ] **Field Validation** - Check extracted data against business rules
+- [ ] **Multi-page Tables** - Handle tables spanning multiple pages
+- [ ] **Template Learning** - Adapt to specific document formats
+- [ ] **Confidence Metrics** - Show reliability of each extraction
 
 ---
 

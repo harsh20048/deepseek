@@ -84,19 +84,25 @@ def load_model():
         return False
 
 def extract_text_from_pdf(pdf_file):
-    """Extract text from uploaded PDF"""
+    """Extract text from uploaded PDF with enhanced error handling"""
     try:
         with pdfplumber.open(pdf_file) as pdf:
             text = ""
             total_pages = len(pdf.pages)
             
+            if total_pages == 0:
+                st.error("⚠️ PDF appears to be empty or corrupted")
+                return None
+            
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            pages_with_text = 0
             for i, page in enumerate(pdf.pages, 1):
                 page_text = page.extract_text()
-                if page_text:
+                if page_text and page_text.strip():
                     text += page_text + "\n"
+                    pages_with_text += 1
                 
                 progress_bar.progress(i / total_pages)
                 status_text.text(f"Processing page {i}/{total_pages}")
@@ -104,9 +110,35 @@ def extract_text_from_pdf(pdf_file):
             progress_bar.empty()
             status_text.empty()
             
+            # Check if we got meaningful text
+            if not text.strip():
+                st.error("⚠️ **No text could be extracted from this PDF!**")
+                st.warning("""
+                **Possible reasons:**
+                - PDF is scanned/image-based (needs OCR)
+                - PDF is password-protected
+                - PDF contains only images/graphics
+                - PDF is corrupted
+                
+                **Solutions:**
+                - Use OCR tools like Tesseract to convert to text-based PDF
+                - Check if you can select text manually in the PDF
+                - Try a different PDF viewer to verify content
+                """)
+                return None
+            
+            if pages_with_text < total_pages:
+                st.warning(f"⚠️ Only {pages_with_text} out of {total_pages} pages contained extractable text")
+            
+            # Check for potential OCR needs
+            if len(text) < 100:  # Very short text might indicate OCR needed
+                st.warning("⚠️ Very little text extracted. This might be a scanned document that needs OCR processing.")
+            
             return text
+            
     except Exception as e:
-        st.error(f"Error extracting text from PDF: {e}")
+        st.error(f"❌ Error processing PDF: {e}")
+        st.info("💡 **Tips for better results:**\n- Ensure PDF is not password-protected\n- Try with a different PDF file\n- Check if PDF contains selectable text")
         return None
 
 def query_local_model(prompt, max_new_tokens=512):
@@ -206,6 +238,34 @@ with st.sidebar:
     3. **Process**: Click "Process PDF" to extract structured data
     4. **View Results**: See extracted fields and table data below
     """)
+    
+    st.header("⚠️ Important Limitations")
+    with st.expander("Click to read before processing", expanded=False):
+        st.markdown("""
+        **Document Requirements:**
+        - ✅ **Text-based PDFs only** (you can select text)
+        - ❌ **Scanned/image PDFs will fail** (need OCR first)
+        - ✅ **German language optimized**
+        - ❌ **Other languages may have poor results**
+        
+        **What Works Best:**
+        - Standard German quotations/invoices
+        - Simple table layouts
+        - Clear, readable text
+        - Standard business formats (GmbH, AG, etc.)
+        
+        **Known Issues:**
+        - Complex table layouts may fail
+        - Non-standard date formats (YYYY-MM-DD)
+        - Unconventional company naming
+        - Multi-column layouts
+        - Password-protected PDFs
+        
+        **Before Processing:**
+        - Verify you can select text in your PDF
+        - Check document is in German
+        - Ensure standard business format
+        """)
 
 # Main content area
 if not st.session_state.model_loaded:
@@ -278,8 +338,13 @@ else:
                         # Try to parse as JSON, fallback to raw text
                         try:
                             parsed_fields = json.loads(fields_response)
-                        except:
-                            parsed_fields = {"Raw_Response": fields_response}
+                            # Validate that we got reasonable fields
+                            if not isinstance(parsed_fields, dict):
+                                raise ValueError("Response is not a dictionary")
+                        except Exception as e:
+                            st.warning(f"⚠️ AI model returned non-JSON response for {uploaded_file.name}")
+                            st.info("💡 This might happen with complex documents or when the model is uncertain")
+                            parsed_fields = {"Raw_Response": fields_response[:500] + "..." if len(fields_response) > 500 else fields_response}
                         
                         # Store results
                         file_result = {
