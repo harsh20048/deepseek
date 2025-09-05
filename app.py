@@ -290,9 +290,64 @@ else:
                         }
                         all_results.append(file_result)
                         
-                        # Display fields for this file
+                        # Display fields for this file in a beautiful format
                         with st.expander(f"📋 Fields from {uploaded_file.name}", expanded=True):
-                            st.json(parsed_fields)
+                            if isinstance(parsed_fields, dict) and "Raw_Response" not in parsed_fields:
+                                # Create a beautiful table for the fields
+                                col1, col2 = st.columns([1, 2])
+                                
+                                with col1:
+                                    st.markdown("**📅 Date:**")
+                                    st.markdown("**📄 Quotation Number:**")
+                                    st.markdown("**🏢 Company:**")
+                                    st.markdown("**📍 Address:**")
+                                
+                                with col2:
+                                    st.markdown(f"`{parsed_fields.get('Date', 'Not found')}`")
+                                    st.markdown(f"`{parsed_fields.get('Angebot', 'Not found')}`")
+                                    st.markdown(f"`{parsed_fields.get('SenderCompany', 'Not found')}`")
+                                    st.markdown(f"`{parsed_fields.get('SenderAddress', 'Not found')}`")
+                                
+                                # Show as cards
+                                st.markdown("---")
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    with st.container():
+                                        st.markdown("""
+                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
+                                            <h4 style='margin: 0; color: #1f77b4;'>📅 Document Date</h4>
+                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
+                                        </div>
+                                        """.format(parsed_fields.get('Date', 'Not found')), unsafe_allow_html=True)
+                                    
+                                    with st.container():
+                                        st.markdown("""
+                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
+                                            <h4 style='margin: 0; color: #1f77b4;'>🏢 Company Name</h4>
+                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
+                                        </div>
+                                        """.format(parsed_fields.get('SenderCompany', 'Not found')), unsafe_allow_html=True)
+                                
+                                with col2:
+                                    with st.container():
+                                        st.markdown("""
+                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
+                                            <h4 style='margin: 0; color: #1f77b4;'>📄 Quotation Number</h4>
+                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
+                                        </div>
+                                        """.format(parsed_fields.get('Angebot', 'Not found')), unsafe_allow_html=True)
+                                    
+                                    with st.container():
+                                        st.markdown("""
+                                        <div style='background-color: #f0f2f6; padding: 1rem; border-radius: 0.5rem; margin: 0.5rem 0;'>
+                                            <h4 style='margin: 0; color: #1f77b4;'>📍 Address</h4>
+                                            <p style='margin: 0.5rem 0; font-size: 1.1rem; font-weight: bold;'>{}</p>
+                                        </div>
+                                        """.format(parsed_fields.get('SenderAddress', 'Not found')), unsafe_allow_html=True)
+                            else:
+                                # Fallback to text display for raw responses
+                                st.text_area("Raw AI Response", parsed_fields.get("Raw_Response", str(parsed_fields)), height=150)
                         
                         # Table extraction query
                         table_query = """
@@ -331,7 +386,43 @@ else:
                             df['Source_File'] = uploaded_file.name  # Add source file column
                             
                             with st.expander(f"📊 Table Data from {uploaded_file.name}", expanded=True):
-                                st.dataframe(df, use_container_width=True)
+                                st.markdown("**Extracted Product/Item Information:**")
+                                
+                                # Display table with better formatting
+                                if not df.empty:
+                                    # Style the dataframe
+                                    styled_df = df.style.set_properties(**{
+                                        'background-color': '#f8f9fa',
+                                        'color': '#333',
+                                        'border': '1px solid #dee2e6'
+                                    }).set_table_styles([
+                                        {'selector': 'th', 'props': [
+                                            ('background-color', '#1f77b4'),
+                                            ('color', 'white'),
+                                            ('font-weight', 'bold'),
+                                            ('text-align', 'center')
+                                        ]}
+                                    ])
+                                    
+                                    st.dataframe(df, width='stretch')
+                                    
+                                    # Show summary statistics
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("Total Items", len(df))
+                                    with col2:
+                                        if 'Menge' in df.columns:
+                                            try:
+                                                total_qty = sum([float(str(x).replace(',', '.')) for x in df['Menge'] if str(x).replace(',', '.').replace('.', '').isdigit()])
+                                                st.metric("Total Quantity", f"{total_qty:.0f}")
+                                            except:
+                                                st.metric("Total Quantity", "N/A")
+                                        else:
+                                            st.metric("Total Quantity", "N/A")
+                                    with col3:
+                                        st.metric("Data Source", uploaded_file.name)
+                                else:
+                                    st.info("No table data found in this document")
                             
                             # Store table data
                             all_tables.append(df)
@@ -354,16 +445,47 @@ else:
             
             # Combined results
             if all_results:
-                st.subheader("📋 All Extracted Fields")
+                st.subheader("📋 All Extracted Fields Summary")
+                
+                # Create a summary table of all fields
+                summary_data = []
                 for result in all_results:
-                    with st.expander(f"Fields from {result['filename']}", expanded=False):
-                        st.json(result['fields'])
+                    fields = result['fields']
+                    if isinstance(fields, dict) and "Raw_Response" not in fields:
+                        summary_data.append({
+                            "File": result['filename'],
+                            "Date": fields.get('Date', 'Not found'),
+                            "Quotation #": fields.get('Angebot', 'Not found'),
+                            "Company": fields.get('SenderCompany', 'Not found'),
+                            "Address": fields.get('SenderAddress', 'Not found')[:50] + "..." if len(str(fields.get('SenderAddress', ''))) > 50 else fields.get('SenderAddress', 'Not found')
+                        })
+                
+                if summary_data:
+                    summary_df = pd.DataFrame(summary_data)
+                    st.dataframe(summary_df, width='stretch')
+                else:
+                    st.info("No structured field data could be extracted from the documents")
             
             # Combined tables
             if all_tables:
                 st.subheader("📊 All Table Data Combined")
                 combined_df = pd.concat(all_tables, ignore_index=True)
-                st.dataframe(combined_df, use_container_width=True)
+                
+                # Display summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Rows", len(combined_df))
+                with col2:
+                    st.metric("Total Files", len(all_tables))
+                with col3:
+                    st.metric("Columns", len(combined_df.columns))
+                with col4:
+                    unique_sources = combined_df['Source_File'].nunique() if 'Source_File' in combined_df.columns else 0
+                    st.metric("Unique Sources", unique_sources)
+                
+                # Display the combined table with better formatting
+                st.markdown("**Combined Product/Item Data from All Documents:**")
+                st.dataframe(combined_df, width='stretch')
                 
                 # Download options
                 col1, col2 = st.columns(2)
