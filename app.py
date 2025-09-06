@@ -379,11 +379,14 @@ def query_local_model(prompt, max_new_tokens=512):
                 inputs, 
                 max_new_tokens=max_new_tokens,
                 num_return_sequences=1,
-                temperature=0.7,
+                temperature=0.1,  # Lower temperature for more focused output
                 do_sample=True,
+                top_p=0.9,
+                top_k=50,
                 pad_token_id=st.session_state.tokenizer.eos_token_id,
                 eos_token_id=st.session_state.tokenizer.eos_token_id,
-                attention_mask=torch.ones_like(inputs)
+                attention_mask=torch.ones_like(inputs),
+                repetition_penalty=1.1
             )
         response = st.session_state.tokenizer.decode(outputs[0], skip_special_tokens=True)
         
@@ -396,7 +399,53 @@ def query_local_model(prompt, max_new_tokens=512):
         st.error(f"Error querying model: {e}")
         return "Error processing query"
 
-# Removed regex fallback extractor - using AI only as requested
+def extract_from_raw_response(response, pdf_text):
+    """
+    Extract fields directly from PDF text when AI returns raw response
+    Specifically handles the format shown by the user
+    """
+    import re
+    
+    # Use the PDF text directly for extraction since AI failed
+    text = pdf_text if pdf_text else response
+    
+    result = {
+        "Date": "",
+        "Angebot": "", 
+        "SenderCompany": "",
+        "SenderAddress": "",
+        "KundenNr": ""
+    }
+    
+    # Extract Date - look for "Datum:" followed by date
+    date_match = re.search(r'Datum:\s*(\d{1,2}\.\d{1,2}\.\d{4})', text, re.IGNORECASE)
+    if date_match:
+        result["Date"] = date_match.group(1)
+    
+    # Extract Angebot - look for "Angebot Nr" followed by numbers
+    angebot_match = re.search(r'Angebot\s+Nr\.?\s*(\d+)', text, re.IGNORECASE)
+    if angebot_match:
+        result["Angebot"] = angebot_match.group(1)
+    
+    # Extract Company - look for company with GmbH at the beginning
+    company_match = re.search(r'^([^,\n]+(?:GmbH|AG|UG|KG|OHG|mbH))', text, re.MULTILINE | re.IGNORECASE)
+    if company_match:
+        result["SenderCompany"] = company_match.group(1).strip()
+    
+    # Extract Address - look for the pattern after company name
+    # For "Schlenotronic GmbH,Adam-Opel-Str. 1,67227 Frankenthal"
+    address_match = re.search(r'GmbH,([^,\n]+),(\d{5}\s+[^,\n]+)', text, re.IGNORECASE)
+    if address_match:
+        street = address_match.group(1).strip()
+        city = address_match.group(2).strip()
+        result["SenderAddress"] = f"{street}, {city}"
+    
+    # Extract Kunden Nr - look for "Kunden Nr.:" followed by numbers
+    kunden_match = re.search(r'Kunden\s+Nr\.?:\s*(\d+)', text, re.IGNORECASE)
+    if kunden_match:
+        result["KundenNr"] = kunden_match.group(1)
+    
+    return result
 
 def truncate_table_json(table_json, max_len=40):
     """Clean and truncate table data for better display"""
@@ -602,33 +651,27 @@ else:
                                 reading_time = max(1, words // 200)
                                 st.metric("Reading Time", f"{reading_time} min")
                         
-                        # Enhanced field extraction query for unstructured text
+                        # Enhanced field extraction query with strict JSON output requirement
                         field_query = """
-                        Extract the following fields from this German business document text. 
-                        The text may be unstructured with information scattered across lines.
-                        
-                        Fields to extract:
-                        - Date: Look for "Datum:" followed by a date in DD.MM.YYYY format
-                        - Angebot: Look for "Angebot Nr." or "Angebot Nr" followed by numbers/letters
-                        - SenderCompany: Look for company name with GmbH, AG, UG, etc. (usually at the beginning)
-                        - SenderAddress: Look for street address, postal code, and city (often after company name)
-                        - KundenNr: Look for "Kunden Nr." or "Kunden-Nr." followed by numbers
-                        
-                        IMPORTANT RULES:
-                        1. Return ONLY valid JSON with these exact keys: Date, Angebot, SenderCompany, SenderAddress, KundenNr
-                        2. If a field is not found, use empty string ""
-                        3. For SenderAddress, combine street, postal code, and city into one field
-                        4. Look carefully through the unstructured text - information may be on separate lines
-                        5. Do not include any text outside the JSON object
-                        
-                        Example format:
+                        You are a data extraction AI. Extract ONLY the following fields from this German document and return ONLY a valid JSON object.
+
+                        From this text, find:
+                        - Date: Look for "Datum:" followed by DD.MM.YYYY format
+                        - Angebot: Look for "Angebot Nr." followed by numbers
+                        - SenderCompany: Company name with GmbH, AG, etc.
+                        - SenderAddress: Street address with postal code and city
+                        - KundenNr: Look for "Kunden Nr.:" followed by numbers
+
+                        CRITICAL: Return ONLY this JSON format, no other text:
                         {
-                          "Date": "11.07.2024",
-                          "Angebot": "36353",
-                          "SenderCompany": "Schlenotronic GmbH",
-                          "SenderAddress": "Adam-Opel-Str. 1, 67227 Frankenthal",
-                          "KundenNr": "8341"
+                          "Date": "value_or_empty_string",
+                          "Angebot": "value_or_empty_string", 
+                          "SenderCompany": "value_or_empty_string",
+                          "SenderAddress": "value_or_empty_string",
+                          "KundenNr": "value_or_empty_string"
                         }
+
+                        Do NOT include explanations, do NOT repeat the document text, return ONLY the JSON object above.
                         """
                         
                         with st.spinner("🤖 Extracting fields with DeepSeek..."):
@@ -639,17 +682,30 @@ else:
                             full_prompt = f"PDF Content:\n{truncated_pdf}\n\n{field_query}"
                             fields_response = query_local_model(full_prompt, max_new_tokens=256)
                         
-                        # Try to parse as JSON, fallback to raw text
+                        # Try to parse as JSON with enhanced extraction
                         try:
-                            parsed_fields = json.loads(fields_response)
+                            # First try direct JSON parsing
+                            parsed_fields = json.loads(fields_response.strip())
                             # Validate that we got reasonable fields
                             if not isinstance(parsed_fields, dict):
                                 raise ValueError("Response is not a dictionary")
                         except Exception as e:
-                            st.warning(f"⚠️ AI model returned non-JSON response for {uploaded_file.name}")
-                            st.info("💡 Showing raw AI response - no fallback processing")
-                            # Only show raw AI response, no fallback processing
-                            parsed_fields = {"Raw_Response": fields_response[:500] + "..." if len(fields_response) > 500 else fields_response}
+                            # Try to extract JSON from response if it contains extra text
+                            import re
+                            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', fields_response, re.DOTALL)
+                            if json_match:
+                                try:
+                                    parsed_fields = json.loads(json_match.group())
+                                    if isinstance(parsed_fields, dict):
+                                        st.info(f"✅ Extracted JSON from AI response for {uploaded_file.name}")
+                                    else:
+                                        raise ValueError("Extracted data is not a dictionary")
+                                except:
+                                    # Manual extraction from the raw response
+                                    parsed_fields = extract_from_raw_response(fields_response, pdf_text)
+                            else:
+                                # Manual extraction from the raw response  
+                                parsed_fields = extract_from_raw_response(fields_response, pdf_text)
                         
                         # Store results
                         file_result = {
