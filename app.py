@@ -396,103 +396,7 @@ def query_local_model(prompt, max_new_tokens=512):
         st.error(f"Error querying model: {e}")
         return "Error processing query"
 
-def extract_fields_from_unstructured_text(text):
-    """
-    Enhanced regex extractor specifically for unstructured German business documents
-    like the format: "Company GmbH,Address,City Customer Name Street City"
-    """
-    import re
-    
-    result = {
-        "Date": "",
-        "Angebot": "",
-        "SenderCompany": "",
-        "SenderAddress": ""
-    }
-    
-    # Clean and normalize text
-    text = re.sub(r'\s+', ' ', text.strip())
-    
-    # Extract date - look for Datum: or standalone dates
-    date_patterns = [
-        r'Datum:\s*(\d{1,2}\.\d{1,2}\.\d{4})',
-        r'\b(\d{1,2}\.\d{1,2}\.\d{4})\b',
-        r'vom\s+(\d{1,2}\.\d{1,2}\.\d{4})',
-    ]
-    
-    for pattern in date_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            result["Date"] = match.group(1)
-            break
-    
-    # Extract Angebot number - more flexible patterns
-    angebot_patterns = [
-        r'Angebot\s+Nr\.?\s*(\d+)',
-        r'Angebot\s+(\d+)',
-        r'Angebotsnummer\s*:?\s*(\d+)',
-        r'Angebot\s+Nr\s+(\d+)',
-    ]
-    
-    for pattern in angebot_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            result["Angebot"] = match.group(1)
-            break
-    
-    # Extract company name - look for legal forms at the beginning
-    # Pattern for "CompanyName GmbH,Address" format
-    company_patterns = [
-        r'^([^,]+(?:GmbH|AG|UG|KG|OHG|mbH|GbR))[,\s]',  # Company at start followed by comma
-        r'([A-ZÄÖÜ][^,\n]*(?:GmbH|AG|UG|KG|OHG|mbH|GbR))',  # Any company with legal form
-        r'^([A-ZÄÖÜ][A-Za-zäöüß\s]+(?:GmbH|AG|UG|KG|OHG|mbH))',  # Standard German company
-    ]
-    
-    for pattern in company_patterns:
-        match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
-        if match:
-            company = match.group(1).strip()
-            if len(company) > 3 and not any(word in company.lower() for word in ['seite', 'page', 'datum', 'kunden']):
-                result["SenderCompany"] = company
-                break
-    
-    # Extract address - look for street, postal code, city patterns
-    # Handle format like "Adam-Opel-Str. 1,67227 Frankenthal"
-    address_patterns = [
-        # Pattern 1: Street,PostalCode City (comma-separated)
-        r'([A-ZÄÖÜ][a-zäöüß\-\s]*[Ss]tr(?:aße|\.)\s*\d+[a-z]?),?\s*(\d{5})\s+([A-ZÄÖÜ][a-zäöüß\s]+)',
-        # Pattern 2: Street PostalCode City (space-separated)
-        r'([A-ZÄÖÜ][a-zäöüß\-\s]*[Ss]tr(?:aße|\.)\s*\d+[a-z]?)\s+(\d{5})\s+([A-ZÄÖÜ][a-zäöüß\s]+)',
-        # Pattern 3: Just PostalCode City
-        r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüß\s]+)(?:\s|$)',
-        # Pattern 4: Street with number
-        r'([A-ZÄÖÜ][a-zäöüß\-\s]*(?:[Ss]tr(?:aße|\.)|[Ww]eg|[Pp]latz)\s*\d+[a-z]?)',
-    ]
-    
-    address_parts = []
-    
-    for pattern in address_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        if matches:
-            for match in matches[:1]:  # Take first match
-                if isinstance(match, tuple):
-                    # Join all parts of the match
-                    address_part = ' '.join([str(part).strip() for part in match if str(part).strip()])
-                else:
-                    address_part = str(match).strip()
-                
-                if len(address_part) > 5:
-                    address_parts.append(address_part)
-                    break
-            
-            if address_parts:
-                break
-    
-    # If we found address parts, combine them
-    if address_parts:
-        result["SenderAddress"] = ', '.join(address_parts)
-    
-    return result
+# Removed regex fallback extractor - using AI only as requested
 
 def truncate_table_json(table_json, max_len=40):
     """Clean and truncate table data for better display"""
@@ -541,11 +445,11 @@ st.markdown('<p class="subtitle">🔒 Process German PDFs with your local DeepSe
 # Add a beautiful info banner
 st.markdown("""
 <div class="info-card">
-    <h3 style="margin-top: 0;">🚀 AI-Powered Document Processing</h3>
+    <h3 style="margin-top: 0;">🚀 Pure AI Document Processing</h3>
     <p style="margin-bottom: 0;">
-        Extract structured data from German quotations and invoices using state-of-the-art 
-        DeepSeek AI technology. All processing happens locally on your machine - your documents 
-        never leave your computer!
+        Extract structured data from German quotations and invoices using only the powerful 
+        DeepSeek AI model - no regex fallbacks, pure machine intelligence! All processing 
+        happens locally on your machine - your documents never leave your computer!
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -612,10 +516,11 @@ with st.sidebar:
         
         **Known Issues:**
         - Complex table layouts may fail
-        - Non-standard date formats (YYYY-MM-DD)
+        - AI model may return non-JSON responses for very complex documents
         - Unconventional company naming
         - Multi-column layouts
         - Password-protected PDFs
+        - No fallback processing - relies purely on AI model accuracy
         
         **Before Processing:**
         - Verify you can select text in your PDF
@@ -623,63 +528,7 @@ with st.sidebar:
         - Ensure standard business format
         """)
     
-    # Add demo section for unstructured text
-    with st.expander("🧪 Test Enhanced Extractor", expanded=False):
-        st.markdown("### Try the enhanced extractor with sample unstructured text:")
-        
-        sample_text = """Schlenotronic GmbH,Adam-Opel-Str. 1,67227 Frankenthal
-Heinrich-Hertz-Schule Karlsruhe
-Reimar Toepell
-Südendstrasse 51
-76135 Karlsruhe
-Deutschland
-Seite: 1
-Kunden Nr.: 8341
-Bearbeiter: Noah Amir Hoshang
-Steuernr.: 15 654 03246
-Vertreter: Noah Amir Hoshang
-Datum: 11.07.2024
-Angebot Nr. 36353
-Sehr geehrte Damen und Herren,
-vielen Dank für Ihre Anfrage. Nachfolgend erhalten Sie unser Angebot."""
-        
-        test_text = st.text_area("Sample unstructured text:", sample_text, height=150)
-        
-        if st.button("🔍 Test Extractor"):
-            extracted = extract_fields_from_unstructured_text(test_text)
-            
-            st.markdown("### Extracted Fields:")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f"""
-                <div class="field-card">
-                    <div class="field-title">📅 Date</div>
-                    <div class="field-value">{extracted.get('Date', 'Not found')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                <div class="field-card">
-                    <div class="field-title">🏢 Company</div>
-                    <div class="field-value">{extracted.get('SenderCompany', 'Not found')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"""
-                <div class="field-card">
-                    <div class="field-title">📄 Angebot</div>
-                    <div class="field-value">{extracted.get('Angebot', 'Not found')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown(f"""
-                <div class="field-card">
-                    <div class="field-title">📍 Address</div>
-                    <div class="field-value">{extracted.get('SenderAddress', 'Not found')}</div>
-                </div>
-                """, unsafe_allow_html=True)
+# Demo section removed - using AI-only approach
 
 # Main content area
 if not st.session_state.model_loaded:
@@ -796,13 +645,9 @@ else:
                                 raise ValueError("Response is not a dictionary")
                         except Exception as e:
                             st.warning(f"⚠️ AI model returned non-JSON response for {uploaded_file.name}")
-                            st.info("💡 Using enhanced regex extractor as fallback...")
-                            # Use enhanced regex extractor for unstructured text
-                            parsed_fields = extract_fields_from_unstructured_text(pdf_text)
-                            
-                            # If regex also failed, show raw response
-                            if not any(parsed_fields.values()):
-                                parsed_fields = {"Raw_Response": fields_response[:500] + "..." if len(fields_response) > 500 else fields_response}
+                            st.info("💡 Showing raw AI response - no fallback processing")
+                            # Only show raw AI response, no fallback processing
+                            parsed_fields = {"Raw_Response": fields_response[:500] + "..." if len(fields_response) > 500 else fields_response}
                         
                         # Store results
                         file_result = {
