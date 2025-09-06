@@ -49,7 +49,7 @@ except ImportError:
 os.environ["HF_HUB_OFFLINE"] = "1"  # Force HuggingFace to work offline
 os.environ["TRANSFORMERS_OFFLINE"] = "1"  # Force transformers to work offline
 os.environ["HF_DATASETS_OFFLINE"] = "1"  # Force datasets to work offline
-os.environ["HUGGINGFACE_ACCESS_TOKEN"] = "dummy_token"  # Bypass token requirement for local models
+os.environ["HUGGINGFACE_ACCESS_TOKEN"] = "dummy_token" # Bypass token requirement for local models
 os.environ["OPENAI_API_KEY"] = "dummy_key"  # Bypass OpenAI API key requirement
 
 # ---------------------------
@@ -417,7 +417,7 @@ def main():
         model = AutoModelForCausalLM.from_pretrained(
             model_path, 
             local_files_only=True,
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16
         )
         print_success("DeepSeek model loaded successfully in offline mode")
         print_success("Data privacy: All processing is done locally, no data sent to external servers")
