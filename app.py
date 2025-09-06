@@ -179,9 +179,11 @@ def load_model():
         st.session_state.model = AutoModelForCausalLM.from_pretrained(
             model_path,
             local_files_only=True,
-            dtype=torch.bfloat16,
-            device_map="cpu"  # Force CPU for stability
+            dtype=torch.bfloat16
         )
+        
+        # Move model to CPU explicitly
+        st.session_state.model = st.session_state.model.to('cpu')
         
         st.session_state.model_loaded = True
         return True
