@@ -301,46 +301,9 @@ def query_local_model_(prompt, max_new_tokens=100):
         
         return response
     except Exception as e:
-        st.error(f"Error querying model: {e}")
-        return "Error processing query"
+        st.error(f"AI model error: {e}")
+        return "AI processing failed"
 
-def extract_from_raw_response(response, pdf_text):
-    """Fast pattern extraction for when AI fails"""
-    import re
-    
-    text = pdf_text if pdf_text else response
-    result = {
-        "Date": "",
-        "Angebot": "", 
-        "SenderCompany": "",
-        "SenderAddress": "",
-        "KundenNr": ""
-    }
-    
-    # Fast regex patterns
-    date_match = re.search(r'Datum:\s*(\d{1,2}\.\d{1,2}\.\d{4})', text, re.IGNORECASE)
-    if date_match:
-        result["Date"] = date_match.group(1)
-    
-    angebot_match = re.search(r'Angebot\s+Nr\.?\s*(\d+)', text, re.IGNORECASE)
-    if angebot_match:
-        result["Angebot"] = angebot_match.group(1)
-    
-    company_match = re.search(r'^([^,\n]+(?:GmbH|AG|UG|KG|OHG|mbH))', text, re.MULTILINE | re.IGNORECASE)
-    if company_match:
-        result["SenderCompany"] = company_match.group(1).strip()
-    
-    address_match = re.search(r'GmbH,([^,\n]+),(\d{5}\s+[^,\n]+)', text, re.IGNORECASE)
-    if address_match:
-        street = address_match.group(1).strip()
-        city = address_match.group(2).strip()
-        result["SenderAddress"] = f"{street}, {city}"
-    
-    kunden_match = re.search(r'Kunden\s+Nr\.?:\s*(\d+)', text, re.IGNORECASE)
-    if kunden_match:
-        result["KundenNr"] = kunden_match.group(1)
-    
-    return result
 
 # Main UI with enhanced styling
 st.markdown('<h1 class="main-header">⚡ DeepSeek PDF Processor</h1>', unsafe_allow_html=True)
@@ -441,7 +404,7 @@ with st.sidebar:
         - Unconventional company naming
         - Multi-column layouts
         - Password-protected PDFs
-        - No fallback processing - relies purely on AI model accuracy
+        - AI-only processing - no fallback extraction methods
         
         **Before Processing:**
         - Verify you can select text in your PDF
@@ -518,26 +481,16 @@ else:
                             full_prompt = f"PDF Content:\n{truncated_pdf}\n\n{field_query}"
                             fields_response = query_local_model_(full_prompt, max_new_tokens=80)
                         
-                        # Try to parse as JSON with enhanced extraction
+                        # Parse AI response as JSON only
                         try:
                             parsed_fields = json.loads(fields_response.strip())
                             if not isinstance(parsed_fields, dict):
-                                raise ValueError("Response is not a dictionary")
+                                raise ValueError("AI response is not a valid dictionary")
                         except Exception as e:
-                            # Try to extract JSON from response if it contains extra text
-                            import re
-                            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', fields_response, re.DOTALL)
-                            if json_match:
-                                try:
-                                    parsed_fields = json.loads(json_match.group())
-                                    if isinstance(parsed_fields, dict):
-                                        st.info(f"✅ Extracted JSON from AI response for {uploaded_file.name}")
-                                    else:
-                                        raise ValueError("Extracted data is not a dictionary")
-                                except:
-                                    parsed_fields = extract_from_raw_response(fields_response, pdf_text)
-                            else:
-                                parsed_fields = extract_from_raw_response(fields_response, pdf_text)
+                            st.error(f"❌ AI failed to return valid JSON for {uploaded_file.name}: {e}")
+                            st.error(f"Raw AI response: {fields_response[:200]}...")
+                            # Skip this file if AI fails
+                            continue
                         
                         # Store results
                         file_result = {
@@ -589,16 +542,13 @@ else:
                                 """, unsafe_allow_html=True)
                                 
                             else:
-                                # Enhanced fallback display
+                                # AI-only display - show structured fields
                                 st.markdown("""
-                                <div class="warning-card">
-                                    <h4 style="margin-top: 0;">⚠️ Raw AI Response</h4>
-                                    <p>The AI model returned unstructured data. This might happen with complex documents.</p>
+                                <div class="success-card">
+                                    <h4 style="margin-top: 0;">✅ AI Extraction Complete</h4>
+                                    <p>Successfully extracted structured data using DeepSeek AI model.</p>
                                 </div>
                                 """, unsafe_allow_html=True)
-                                
-                                raw_response = parsed_fields.get("Raw_Response", str(parsed_fields))
-                                st.code(raw_response[:500] + "..." if len(raw_response) > 500 else raw_response)
                         
                         # OPTIMIZATION: Skip table extraction if requested
                         if not skip_tables:
