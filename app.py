@@ -207,7 +207,7 @@ def extract_text_from_pdf(pdf_file):
             
             pages_with_text = 0
             for i, page in enumerate(pdf.pages, 1):
-                # OPTIMIZATION: Try fastest method first
+                # Try multiple extraction methods for accuracy
                 page_text = None
                 
                 # Method 1: Standard extraction (fastest)
@@ -247,8 +247,9 @@ def extract_text_from_pdf(pdf_file):
                         page_text = ""
                 
                 if page_text and page_text.strip():
-                    # OPTIMIZATION: Skip text cleaning for speed
-                    text += f"\n--- Page {i} ---\n" + page_text + "\n"
+                    # Clean and add text for better accuracy
+                    cleaned_text = clean_extracted_text(page_text)
+                    text += f"\n--- Page {i} ---\n" + cleaned_text + "\n"
                     pages_with_text += 1
                 
                 progress_bar.progress(i / total_pages)
@@ -270,27 +271,48 @@ def extract_text_from_pdf(pdf_file):
         st.error(f"❌ Error processing PDF: {e}")
         return None
 
-def query_local_model_(prompt, max_new_tokens=100):
-    """: Fast AI model query with greedy decoding"""
+def clean_extracted_text(text):
+    """Clean and normalize extracted text for better processing"""
+    if not text:
+        return ""
+    
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove special characters that might interfere
+    text = re.sub(r'[^\w\s.,;:!?@#$%&*()\-_+=\[\]{}|\\:";\'<>?,./]', ' ', text)
+    
+    # Normalize line breaks
+    text = re.sub(r'\n+', '\n', text)
+    
+    # Remove leading/trailing whitespace
+    text = text.strip()
+    
+    return text
+
+def query_local_model_(prompt, max_new_tokens=200):
+    """AI model query with balanced accuracy and speed"""
     try:
         inputs = st.session_state.tokenizer.encode(prompt, return_tensors="pt")
         
-        # OPTIMIZATION: Smaller input limit for speed
-        max_input_length = 1024  # Reduced from 2048
+        # Use full input length for better accuracy
+        max_input_length = 2048
         if inputs.shape[1] > max_input_length:
             inputs = inputs[:, -max_input_length:]
         
         with torch.no_grad():
             outputs = st.session_state.model.generate(
                 inputs, 
-                max_new_tokens=max_new_tokens,  # OPTIMIZATION: Much smaller
+                max_new_tokens=max_new_tokens,
                 num_return_sequences=1,
-                temperature=0.0,  # OPTIMIZATION: Greedy decoding
-                do_sample=False,  # OPTIMIZATION: Fastest method
+                temperature=0.1,
+                do_sample=True,
+                top_p=0.9,
+                top_k=50,
                 pad_token_id=st.session_state.tokenizer.eos_token_id,
                 eos_token_id=st.session_state.tokenizer.eos_token_id,
-                attention_mask=torch.ones_like(inputs)
-                # OPTIMIZATION: Removed top_p, top_k, repetition_penalty
+                attention_mask=torch.ones_like(inputs),
+                repetition_penalty=1.1
             )
         
         response = st.session_state.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -307,15 +329,15 @@ def query_local_model_(prompt, max_new_tokens=100):
 
 # Main UI with enhanced styling
 st.markdown('<h1 class="main-header">⚡ DeepSeek PDF Processor</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">🔒 Process German PDFs with your local DeepSeek model - 100% Offline & Private - SPEED </p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">🔒 Process German PDFs with your local DeepSeek model - 100% Offline & Private - ACCURACY FOCUSED</p>', unsafe_allow_html=True)
 
 # Add a beautiful info banner
 st.markdown("""
 <div class="info-card">
-    <h3 style="margin-top: 0;">⚡ Ultra-Fast AI Document Processing</h3>
+    <h3 style="margin-top: 0;">🎯 High-Accuracy AI Document Processing</h3>
     <p style="margin-bottom: 0;">
         Extract structured data from German quotations and invoices using  
-        DeepSeek AI technology. <strong>10-20x faster processing!</strong> All processing 
+        DeepSeek AI technology. <strong>High accuracy processing!</strong> All processing 
         happens locally on your machine - your documents never leave your computer!
     </p>
 </div>
@@ -404,7 +426,7 @@ with st.sidebar:
         - Unconventional company naming
         - Multi-column layouts
         - Password-protected PDFs
-        - AI-only processing - no fallback extraction methods
+        - AI-only processing with accuracy focus - no fallback extraction methods
         
         **Before Processing:**
         - Verify you can select text in your PDF
@@ -425,19 +447,19 @@ else:
     )
     
     if uploaded_files:
-        # OPTIMIZATION: Add speed options
+        # Processing options for accuracy
         col1, col2 = st.columns(2)
         with col1:
-            skip_tables = st.checkbox("⚡ Skip table extraction (2x faster)", value=False)
+            skip_tables = st.checkbox("📊 Skip table extraction", value=False)
         with col2:
-            fast_mode = st.checkbox("🚀 Ultra-fast mode (minimal processing)", value=True)
+            show_preview = st.checkbox("👁️ Show text preview", value=True)
         
-        if st.button("⚡ Process PDFs ()", type="primary"):
+        if st.button("🔍 Process PDFs with AI", type="primary"):
             all_results = []
             all_tables = []
             
             for uploaded_file in uploaded_files:
-                with st.spinner(f"⚡ Fast processing {uploaded_file.name}..."):
+                with st.spinner(f"🔍 Processing {uploaded_file.name} with AI..."):
                     # Extract text
                     st.info("📖 Extracting text from PDF...")
                     pdf_text = extract_text_from_pdf(uploaded_file)
@@ -448,8 +470,8 @@ else:
                     else:
                         st.success(f"✅ Successfully extracted {len(pdf_text)} characters")
                         
-                        # OPTIMIZATION: Skip preview in fast mode
-                        if not fast_mode:
+                        # Show text preview if requested
+                        if show_preview:
                             with st.expander(f"📄 Preview extracted text from {uploaded_file.name}", expanded=False):
                                 preview_text = pdf_text[:800] + "..." if len(pdf_text) > 800 else pdf_text
                                 st.markdown("### 📋 Structured Text Preview")
@@ -461,25 +483,25 @@ else:
                                 </div>
                                 """, unsafe_allow_html=True)
                         
-                        # OPTIMIZATION: Ultra-fast field extraction
+                        # Field extraction with full accuracy
                         field_query = """
-                        Extract ONLY these fields and return ONLY JSON:
+                        Extract these fields from the German PDF and return ONLY valid JSON:
                         {
-                          "Date": "DD.MM.YYYY or empty",
-                          "Angebot": "number or empty", 
-                          "SenderCompany": "company name or empty",
-                          "SenderAddress": "address or empty",
-                          "KundenNr": "number or empty"
+                          "Date": "DD.MM.YYYY format",
+                          "Angebot": "offer number",
+                          "SenderCompany": "company name",
+                          "SenderAddress": "company address", 
+                          "KundenNr": "customer number"
                         }
                         """
                         
-                        with st.spinner("⚡ Fast field extraction..."):
-                            # OPTIMIZATION: Much smaller input
-                            max_pdf_length = 600 if fast_mode else 800
+                        with st.spinner("🔍 Extracting fields with AI..."):
+                            # Use full text for better accuracy
+                            max_pdf_length = 1500
                             truncated_pdf = pdf_text[:max_pdf_length] + "..." if len(pdf_text) > max_pdf_length else pdf_text
                             
                             full_prompt = f"PDF Content:\n{truncated_pdf}\n\n{field_query}"
-                            fields_response = query_local_model_(full_prompt, max_new_tokens=80)
+                            fields_response = query_local_model_(full_prompt, max_new_tokens=150)
                         
                         # Parse AI response as JSON only
                         try:
@@ -550,7 +572,7 @@ else:
                                 </div>
                                 """, unsafe_allow_html=True)
                         
-                        # OPTIMIZATION: Skip table extraction if requested
+                        # Table extraction if requested
                         if not skip_tables:
                             # Table extraction query
                             table_query = """
@@ -558,12 +580,12 @@ else:
                             [{"Column1": "value1", "Column2": "value2"}]
                             """
                             
-                            with st.spinner("⚡ Fast table extraction..."):
-                                max_pdf_length = 600 if fast_mode else 800
+                            with st.spinner("🔍 Extracting tables with AI..."):
+                                max_pdf_length = 1500
                                 truncated_pdf = pdf_text[:max_pdf_length] + "..." if len(pdf_text) > max_pdf_length else pdf_text
                                 
                                 full_table_prompt = f"PDF Content:\n{truncated_pdf}\n\n{table_query}"
-                                table_response = query_local_model_(full_table_prompt, max_new_tokens=150)
+                                table_response = query_local_model_(full_table_prompt, max_new_tokens=200)
                             
                             # Process and display table
                             if table_response:
