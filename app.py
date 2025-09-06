@@ -305,14 +305,14 @@ def query_local_model_(prompt, max_new_tokens=200):
                 inputs, 
                 max_new_tokens=max_new_tokens,
                 num_return_sequences=1,
-                temperature=0.1,
-                do_sample=True,
-                top_p=0.9,
-                top_k=50,
+                temperature=0.0,  # More deterministic for JSON
+                do_sample=False,  # Greedy decoding for consistency
+                top_p=1.0,
+                top_k=0,
                 pad_token_id=st.session_state.tokenizer.eos_token_id,
                 eos_token_id=st.session_state.tokenizer.eos_token_id,
                 attention_mask=torch.ones_like(inputs),
-                repetition_penalty=1.1
+                repetition_penalty=1.2  # Higher to avoid repetition
             )
         
         response = st.session_state.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -485,7 +485,9 @@ else:
                         
                         # Field extraction with full accuracy
                         field_query = """
-                        Extract these fields from the German PDF and return ONLY valid JSON:
+                        IMPORTANT: You must return ONLY valid JSON. Do not include any other text.
+
+                        Extract these fields from the German PDF and return ONLY this JSON format:
                         {
                           "Date": "DD.MM.YYYY format",
                           "Angebot": "offer number",
@@ -493,6 +495,8 @@ else:
                           "SenderAddress": "company address", 
                           "KundenNr": "customer number"
                         }
+
+                        Return ONLY the JSON object, nothing else.
                         """
                         
                         with st.spinner("🔍 Extracting fields with AI..."):
@@ -503,15 +507,41 @@ else:
                             full_prompt = f"PDF Content:\n{truncated_pdf}\n\n{field_query}"
                             fields_response = query_local_model_(full_prompt, max_new_tokens=150)
                         
-                        # Parse AI response as JSON only
+                        # Parse AI response as JSON with better error handling
                         try:
-                            parsed_fields = json.loads(fields_response.strip())
+                            # Clean the response first
+                            cleaned_response = fields_response.strip()
+                            
+                            # Try to find JSON in the response
+                            if cleaned_response.startswith("PDF Content:"):
+                                st.warning(f"⚠️ AI returned PDF content instead of JSON for {uploaded_file.name}")
+                                st.warning("This might indicate the model is not following instructions properly.")
+                                continue
+                            
+                            # Try direct JSON parsing
+                            parsed_fields = json.loads(cleaned_response)
                             if not isinstance(parsed_fields, dict):
                                 raise ValueError("AI response is not a valid dictionary")
+                                
+                        except json.JSONDecodeError as e:
+                            # Try to extract JSON from the response
+                            import re
+                            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned_response, re.DOTALL)
+                            if json_match:
+                                try:
+                                    parsed_fields = json.loads(json_match.group())
+                                    st.info(f"✅ Extracted JSON from AI response for {uploaded_file.name}")
+                                except:
+                                    st.error(f"❌ AI failed to return valid JSON for {uploaded_file.name}: {e}")
+                                    st.error(f"Raw AI response: {fields_response[:200]}...")
+                                    continue
+                            else:
+                                st.error(f"❌ AI failed to return valid JSON for {uploaded_file.name}: {e}")
+                                st.error(f"Raw AI response: {fields_response[:200]}...")
+                                continue
                         except Exception as e:
-                            st.error(f"❌ AI failed to return valid JSON for {uploaded_file.name}: {e}")
+                            st.error(f"❌ AI processing error for {uploaded_file.name}: {e}")
                             st.error(f"Raw AI response: {fields_response[:200]}...")
-                            # Skip this file if AI fails
                             continue
                         
                         # Store results
