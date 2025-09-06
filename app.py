@@ -612,9 +612,10 @@ else:
                         - Angebot: Look for "Angebot Nr." or "Angebot Nr" followed by numbers/letters
                         - SenderCompany: Look for company name with GmbH, AG, UG, etc. (usually at the beginning)
                         - SenderAddress: Look for street address, postal code, and city (often after company name)
+                        - KundenNr: Look for "Kunden Nr." or "Kunden-Nr." followed by numbers
                         
                         IMPORTANT RULES:
-                        1. Return ONLY valid JSON with these exact keys: Date, Angebot, SenderCompany, SenderAddress
+                        1. Return ONLY valid JSON with these exact keys: Date, Angebot, SenderCompany, SenderAddress, KundenNr
                         2. If a field is not found, use empty string ""
                         3. For SenderAddress, combine street, postal code, and city into one field
                         4. Look carefully through the unstructured text - information may be on separate lines
@@ -625,7 +626,8 @@ else:
                           "Date": "11.07.2024",
                           "Angebot": "36353",
                           "SenderCompany": "Schlenotronic GmbH",
-                          "SenderAddress": "Adam-Opel-Str. 1, 67227 Frankenthal"
+                          "SenderAddress": "Adam-Opel-Str. 1, 67227 Frankenthal",
+                          "KundenNr": "8341"
                         }
                         """
                         
@@ -658,52 +660,32 @@ else:
                         }
                         all_results.append(file_result)
                         
-                        # Display fields in beautiful cards
+                        # Display fields in the requested numbered format
                         with st.expander(f"📋 Extracted Data from {uploaded_file.name}", expanded=True):
                             if isinstance(parsed_fields, dict) and "Raw_Response" not in parsed_fields:
                                 st.markdown("### 🎯 Document Information")
                                 
-                                # Create beautiful field cards
-                                col1, col2 = st.columns(2)
-                                
-                                with col1:
-                                    st.markdown(f"""
-                                    <div class="field-card">
-                                        <div class="field-title">📅 Document Date</div>
-                                        <div class="field-value">{parsed_fields.get('Date', 'Not found')}</div>
+                                # Display in numbered format as requested
+                                st.markdown(f"""
+                                <div class="field-card">
+                                    <div style="font-size: 1.2rem; font-family: 'Courier New', monospace; line-height: 2;">
+                                        <strong>1. Date = </strong>{parsed_fields.get('Date', '')}<br>
+                                        <strong>2. Angebot = </strong>{parsed_fields.get('Angebot', '')}<br>
+                                        <strong>3. Company name = </strong>{parsed_fields.get('SenderCompany', '')}<br>
+                                        <strong>4. Company address = </strong>{parsed_fields.get('SenderAddress', '')}<br>
+                                        <strong>5. Kunden Nr. = </strong>{parsed_fields.get('KundenNr', '')}
                                     </div>
-                                    """, unsafe_allow_html=True)
-                                    
-                                    st.markdown(f"""
-                                    <div class="field-card">
-                                        <div class="field-title">🏢 Company Name</div>
-                                        <div class="field-value">{parsed_fields.get('SenderCompany', 'Not found')}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                
-                                with col2:
-                                    st.markdown(f"""
-                                    <div class="field-card">
-                                        <div class="field-title">📄 Quotation Number</div>
-                                        <div class="field-value">{parsed_fields.get('Angebot', 'Not found')}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
-                                    
-                                    st.markdown(f"""
-                                    <div class="field-card">
-                                        <div class="field-title">📍 Company Address</div>
-                                        <div class="field-value">{parsed_fields.get('SenderAddress', 'Not found')}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                                </div>
+                                """, unsafe_allow_html=True)
                                 
                                 # Add extraction quality indicator
-                                fields_found = sum(1 for v in parsed_fields.values() if v and str(v).strip() and str(v).strip() != 'Not found')
-                                quality_percentage = (fields_found / 4) * 100
+                                fields_found = sum(1 for v in parsed_fields.values() if v and str(v).strip())
+                                quality_percentage = (fields_found / 5) * 100
                                 
-                                if quality_percentage >= 75:
+                                if quality_percentage >= 80:
                                     quality_color = "#4facfe"
                                     quality_text = "Excellent"
-                                elif quality_percentage >= 50:
+                                elif quality_percentage >= 60:
                                     quality_color = "#667eea"
                                     quality_text = "Good"
                                 else:
@@ -714,7 +696,7 @@ else:
                                 <div style="background: linear-gradient(135deg, {quality_color} 0%, {quality_color}88 100%); 
                                            color: white; padding: 1rem; border-radius: 10px; margin: 1rem 0; text-align: center;">
                                     <h4 style="margin: 0;">🎯 Extraction Quality: {quality_text}</h4>
-                                    <p style="margin: 0.5rem 0;">Found {fields_found} out of 4 fields ({quality_percentage:.0f}%)</p>
+                                    <p style="margin: 0.5rem 0;">Found {fields_found} out of 5 fields ({quality_percentage:.0f}%)</p>
                                 </div>
                                 """, unsafe_allow_html=True)
                                 
@@ -848,8 +830,8 @@ else:
                 found_fields = 0
                 for result in all_results:
                     if isinstance(result['fields'], dict) and "Raw_Response" not in result['fields']:
-                        total_fields += 4
-                        found_fields += sum(1 for v in result['fields'].values() if v and str(v).strip() and str(v).strip() != 'Not found')
+                        total_fields += 5  # Now we have 5 fields including KundenNr
+                        found_fields += sum(1 for v in result['fields'].values() if v and str(v).strip())
                 
                 avg_quality = (found_fields / total_fields * 100) if total_fields > 0 else 0
                 st.markdown(f"""
@@ -870,10 +852,11 @@ else:
                     if isinstance(fields, dict) and "Raw_Response" not in fields:
                         summary_data.append({
                             "File": result['filename'],
-                            "Date": fields.get('Date', 'Not found'),
-                            "Quotation #": fields.get('Angebot', 'Not found'),
-                            "Company": fields.get('SenderCompany', 'Not found'),
-                            "Address": fields.get('SenderAddress', 'Not found')[:50] + "..." if len(str(fields.get('SenderAddress', ''))) > 50 else fields.get('SenderAddress', 'Not found')
+                            "Date": fields.get('Date', ''),
+                            "Angebot": fields.get('Angebot', ''),
+                            "Company name": fields.get('SenderCompany', ''),
+                            "Company address": fields.get('SenderAddress', '')[:50] + "..." if len(str(fields.get('SenderAddress', ''))) > 50 else fields.get('SenderAddress', ''),
+                            "Kunden Nr.": fields.get('KundenNr', '')
                         })
                 
                 if summary_data:
